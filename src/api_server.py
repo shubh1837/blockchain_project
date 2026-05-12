@@ -71,7 +71,7 @@ async def analyze_xray(file: UploadFile = File(...)):
         preprocessed_img = load_and_preprocess_image(history_path)
         
         predictions, heatmap_b64 = model_wrapper.predict(preprocessed_img, explain=True)
-        formatted_preds = [{"name": k, "score": v} for k, v in list(predictions.items())[:6]]
+        formatted_preds = [{"name": k, "score": v} for k, v in predictions.items()]
         
         ssh_hash = ssh_gen.generate_ssh(history_path)
         cid = storage.upload_to_ipfs(history_path)

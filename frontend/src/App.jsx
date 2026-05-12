@@ -139,6 +139,17 @@ function App() {
       }
   }
 
+  const clearHistory = () => {
+      setHistoryItems([])
+      localStorage.removeItem(`dacnet_history_${apiPort}`)
+      setImage(null)
+      setFileObject(null)
+      setCurrentViewData(null)
+      setSelectedHistoryId(null)
+      setDoctorFeedback({})
+      setStatus('idle')
+  }
+
   const handleTrain = async () => {
       if (!currentViewData) return;
       setStatus('training')
@@ -204,9 +215,19 @@ function App() {
         
         {/* Left Column: History Bank */}
         <div className="history-container glass-panel animate-slide-up" style={{ padding: '1rem', animationDelay: '0s' }}>
-            <h3 style={{marginBottom: "1rem", fontSize: "1.1rem", borderBottom: "1px solid var(--glass-border)", paddingBottom: "0.5rem"}}>
-                Patient History Vault
-            </h3>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: "1rem", borderBottom: "1px solid var(--glass-border)", paddingBottom: "0.5rem"}}>
+                <h3 style={{fontSize: "1.1rem", margin: 0}}>
+                    Patient History Vault
+                </h3>
+                {historyItems.length > 0 && (
+                    <button 
+                        onClick={clearHistory}
+                        style={{background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold'}}
+                    >
+                        Clear Vault
+                    </button>
+                )}
+            </div>
             
             {historyItems.length === 0 ? (
                 <div style={{color: "var(--text-muted)", fontSize: "0.9rem", textAlign: "center", marginTop: "2rem"}}>
@@ -314,7 +335,7 @@ function App() {
                      </div>
                  )}
 
-                 <div style={{display: "flex", flexDirection: "column", gap: "1rem"}}>
+                 <div style={{display: "flex", flexDirection: "column", gap: "1rem", maxHeight: "400px", overflowY: "auto", paddingRight: "0.5rem"}}>
                    {currentViewData.pathologies.map((path, idx) => (
                      <div key={idx} className="pathology-row">
                        <div className="path-header">

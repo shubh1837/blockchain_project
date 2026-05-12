@@ -1,3 +1,4 @@
+import os
 import torch
 import torchxrayvision as xrv
 import numpy as np
@@ -11,15 +12,28 @@ class XRayModel:
         """
         print(f"Loading TorchXRayVision model: {model_name}...")
         self.model = xrv.models.get_model(model_name)
+        
+        # Check for fine-tuned weights
+        weights_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'fine_tuned_weights.pth')
+        if os.path.exists(weights_path):
+            print(f"Found fine-tuned weights at {weights_path}. Loading them...")
+            self.model.load_state_dict(torch.load(weights_path, map_location="cpu"))
+            print("Fine-tuned weights loaded successfully.")
+            
+        # Ensure model and inputs are on the same device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
+        
         self.model.eval() # Set to evaluation mode
         self.pathologies = self.model.pathologies
-        print("Model loaded successfully.")
+        print(f"Model loaded successfully on {self.device}.")
 
     def predict(self, img_array, explain=True):
         """
         Run inference on the preprocessed image array and optionally generate an Explainable AI heatmap.
         """
-        img_tensor = torch.from_numpy(img_array).unsqueeze(0)
+        # Move input tensor to the same device as the model
+        img_tensor = torch.from_numpy(img_array).unsqueeze(0).to(self.device)
         
         if explain:
             img_tensor.requires_grad_()
@@ -29,7 +43,7 @@ class XRayModel:
             # Format the output predictions
             results = {}
             for i, pathology in enumerate(self.pathologies):
-                results[pathology] = float(outputs[0][i])
+                results[pathology] = float(outputs[0][i].cpu())
                 
             sorted_results = dict(sorted(results.items(), key=lambda item: item[1], reverse=True))
             
@@ -41,8 +55,8 @@ class XRayModel:
             self.model.zero_grad()
             score.backward()
             
-            # Process gradients
-            saliency = img_tensor.grad.data.abs().squeeze().numpy()
+            # Process gradients (move back to CPU for numpy operations)
+            saliency = img_tensor.grad.data.cpu().abs().squeeze().numpy()
             saliency = saliency - saliency.min()
             saliency = saliency / (saliency.max() + 1e-8)
             saliency = np.uint8(255 * saliency)
@@ -71,7 +85,7 @@ class XRayModel:
                 
             results = {}
             for i, pathology in enumerate(self.pathologies):
-                results[pathology] = float(outputs[0][i])
+                results[pathology] = float(outputs[0][i].cpu())
                 
             sorted_results = dict(sorted(results.items(), key=lambda item: item[1], reverse=True))
             return sorted_results, None
