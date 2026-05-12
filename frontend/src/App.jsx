@@ -93,11 +93,12 @@ function App() {
              filename: data.filename,
              timestamp: new Date().toLocaleString(),
              pathologies: data.pathologies,
+             heatmap_base64: data.heatmap_base64,
              ssh_hash: data.ssh_hash,
              cid: data.cid,
              tx_id: data.tx_id,
              train_status: 'pending', // pending | trained
-             preview_img_url: image
+             preview_img_url: `http://localhost:${apiPort}/image/${data.job_id}`
          };
 
          // Prepend to history array
@@ -136,6 +137,17 @@ function App() {
       } else {
           setStatus('complete')
       }
+  }
+
+  const clearHistory = () => {
+      setHistoryItems([])
+      localStorage.removeItem(`dacnet_history_${apiPort}`)
+      setImage(null)
+      setFileObject(null)
+      setCurrentViewData(null)
+      setSelectedHistoryId(null)
+      setDoctorFeedback({})
+      setStatus('idle')
   }
 
   const handleTrain = async () => {
@@ -203,9 +215,19 @@ function App() {
         
         {/* Left Column: History Bank */}
         <div className="history-container glass-panel animate-slide-up" style={{ padding: '1rem', animationDelay: '0s' }}>
-            <h3 style={{marginBottom: "1rem", fontSize: "1.1rem", borderBottom: "1px solid var(--glass-border)", paddingBottom: "0.5rem"}}>
-                Patient History Vault
-            </h3>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: "1rem", borderBottom: "1px solid var(--glass-border)", paddingBottom: "0.5rem"}}>
+                <h3 style={{fontSize: "1.1rem", margin: 0}}>
+                    Patient History Vault
+                </h3>
+                {historyItems.length > 0 && (
+                    <button 
+                        onClick={clearHistory}
+                        style={{background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '0.2rem 0.5rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold'}}
+                    >
+                        Clear Vault
+                    </button>
+                )}
+            </div>
             
             {historyItems.length === 0 ? (
                 <div style={{color: "var(--text-muted)", fontSize: "0.9rem", textAlign: "center", marginTop: "2rem"}}>
@@ -240,7 +262,18 @@ function App() {
             onDrop={handleDrop}
           >
             {image ? (
-              <img src={image} alt="X-Ray Preview" className="preview-image" />
+              <div style={{display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', position: 'relative', zIndex: 10}}>
+                <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, height: '100%', padding: '1rem'}}>
+                  <span style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem'}}>Original X-Ray</span>
+                  <img src={image} alt="X-Ray Preview" className="preview-image-flex" style={{maxHeight: '300px'}} />
+                </div>
+                {(status === 'complete' || status === 'learned') && currentViewData?.heatmap_base64 && (
+                   <div className="animate-slide-up" style={{display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, height: '100%', padding: '1rem'}}>
+                     <span style={{fontSize: '0.8rem', color: 'var(--accent-primary)', marginBottom: '0.5rem', fontWeight: 'bold'}}>✨ AI Saliency Map</span>
+                     <img src={`data:image/png;base64,${currentViewData.heatmap_base64}`} alt="AI Heatmap" className="preview-image-flex" style={{maxHeight: '300px', border: '2px solid var(--accent-primary)', boxShadow: '0 0 15px rgba(59, 130, 246, 0.3)'}} />
+                   </div>
+                )}
+              </div>
             ) : (
               <>
                 <div className="upload-icon">☢️</div>
@@ -302,7 +335,7 @@ function App() {
                      </div>
                  )}
 
-                 <div style={{display: "flex", flexDirection: "column", gap: "1rem"}}>
+                 <div style={{display: "flex", flexDirection: "column", gap: "1rem", maxHeight: "400px", overflowY: "auto", paddingRight: "0.5rem"}}>
                    {currentViewData.pathologies.map((path, idx) => (
                      <div key={idx} className="pathology-row">
                        <div className="path-header">

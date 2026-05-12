@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import shutil
 import uuid
@@ -36,10 +37,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from src.dacnet import FocalLoss
+
 log_message("Mounting PyTorch Ecosystem for API...")
 model_wrapper = XRayModel()
 optimizer = optim.Adam(model_wrapper.model.parameters(), lr=0.001)
-criterion = nn.BCEWithLogitsLoss()
+criterion = FocalLoss()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model_wrapper.model.to(device)
 
@@ -70,8 +73,8 @@ async def analyze_xray(file: UploadFile = File(...)):
         log_message(f"[{job_id}] Request Received: Secured to history vault.")
         preprocessed_img = load_and_preprocess_image(history_path)
         
-        predictions = model_wrapper.predict(preprocessed_img)
-        formatted_preds = [{"name": k, "score": v} for k, v in list(predictions.items())[:6]]
+        predictions, heatmap_b64 = model_wrapper.predict(preprocessed_img, explain=True)
+        formatted_preds = [{"name": k, "score": v} for k, v in predictions.items()]
         
         ssh_hash = ssh_gen.generate_ssh(history_path)
         cid = storage.upload_to_ipfs(history_path)
@@ -82,6 +85,7 @@ async def analyze_xray(file: UploadFile = File(...)):
             "job_id": job_id,
             "filename": file.filename,
             "pathologies": formatted_preds,
+            "heatmap_base64": heatmap_b64,
             "ssh_hash": ssh_hash,
             "cid": cid,
             "tx_id": tx_id,
@@ -137,6 +141,18 @@ async def active_learning_step(feedback: FeedbackData):
     except Exception as e:
         log_message(f"[{feedback.job_id}] Training Error: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.get("/image/{job_id}")
+async def get_image(job_id: str):
+    for file in os.listdir(HISTORY_DIR):
+        if file.startswith(job_id):
+            return FileResponse(os.path.join(HISTORY_DIR, file))
+            
+    for file in os.listdir(TRAINED_DIR):
+        if file.startswith(job_id):
+            return FileResponse(os.path.join(TRAINED_DIR, file))
+            
+    return {"status": "error", "message": "Image not found"}
 
 if __name__ == "__main__":
     log_message("API Persistent Server Active.")
