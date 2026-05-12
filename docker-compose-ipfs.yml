@@ -1,0 +1,24 @@
+version: '3.4'
+
+services:
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: dacnet-ipfs-node
+    ports:
+      - "4001:4001" # IPFS swarm
+      - "4001:4001/udp" # IPFS swarm UDP
+      - "127.0.0.1:8080:8080" # Local Gateway
+      - "127.0.0.1:5001:5001" # Local HTTP API
+    volumes:
+      - ipfs_staging:/export
+      - ipfs_data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+    # Run the daemon in strict OFFLINE mode.
+    # This guarantees the X-Ray is only hosted on this specific local device 
+    # and is NEVER broadcasted to the global public DHT network.
+    command: daemon --offline
+      
+volumes:
+  ipfs_staging:
+  ipfs_data:

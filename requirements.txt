@@ -1,0 +1,12 @@
+torch
+torchvision
+torchxrayvision
+opencv-python
+pydicom
+numpy
+pandas
+Requests
+flwr
+fastapi
+uvicorn
+python-multipart
