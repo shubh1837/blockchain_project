@@ -1,31 +1,46 @@
 import os
 import torch
-import torchxrayvision as xrv
 import numpy as np
 import cv2
 import base64
+import re
+from src.dacnet import DenseNet121
 
 class XRayModel:
-    def __init__(self, model_name="densenet121-res224-all"):
+    def __init__(self):
         """
-        Initializes the pre-trained TorchXRayVision model.
+        Initializes the pre-trained DACNet model.
         """
-        print(f"Loading TorchXRayVision model: {model_name}...")
-        self.model = xrv.models.get_model(model_name)
+        print("Loading DACNet model...")
+        self.model = DenseNet121(classCount=14, isTrained=False)
         
-        # Check for fine-tuned weights
-        weights_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'fine_tuned_weights.pth')
+        # Define the exact 14 pathologies trained on CheXNet
+        self.pathologies = [ 'Atelectasis', 'Cardiomegaly', 'Effusion', 'Infiltration', 'Mass', 'Nodule', 'Pneumonia',
+                'Pneumothorax', 'Consolidation', 'Edema', 'Emphysema', 'Fibrosis', 'Pleural_Thickening', 'Hernia']
+
+        # Load weights
+        weights_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'dacnet.pth')
         if os.path.exists(weights_path):
-            print(f"Found fine-tuned weights at {weights_path}. Loading them...")
-            self.model.load_state_dict(torch.load(weights_path, map_location="cpu"))
-            print("Fine-tuned weights loaded successfully.")
+            print(f"Found DACNet weights at {weights_path}. Loading them...")
+            checkpoint = torch.load(weights_path, map_location="cpu", weights_only=False)
+            
+            # The DACNet weights were saved directly from a torchvision densenet121.
+            # So the keys match the internal self.model.densenet121.
+            state_dict = checkpoint.get('state_dict', checkpoint)
+            
+            # Remove any 'module.' just in case
+            clean_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+            
+            self.model.densenet121.load_state_dict(clean_state_dict)
+            print("DACNet weights loaded successfully.")
+        else:
+            print(f"WARNING: DACNet weights not found at {weights_path}")
             
         # Ensure model and inputs are on the same device
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         
         self.model.eval() # Set to evaluation mode
-        self.pathologies = self.model.pathologies
         print(f"Model loaded successfully on {self.device}.")
 
     def predict(self, img_array, explain=True):
@@ -40,10 +55,13 @@ class XRayModel:
             self.model.eval()
             outputs = self.model(img_tensor)
             
+            # DACNet outputs logits, so we apply sigmoid to get probabilities
+            probs = torch.sigmoid(outputs)
+            
             # Format the output predictions
             results = {}
             for i, pathology in enumerate(self.pathologies):
-                results[pathology] = float(outputs[0][i].cpu())
+                results[pathology] = float(probs[0][i].cpu())
                 
             sorted_results = dict(sorted(results.items(), key=lambda item: item[1], reverse=True))
             
@@ -56,7 +74,10 @@ class XRayModel:
             score.backward()
             
             # Process gradients (move back to CPU for numpy operations)
+            # Saliency is (1, 3, 224, 224). We squeeze to get (3, 224, 224) and max across channels to get (224, 224).
             saliency = img_tensor.grad.data.cpu().abs().squeeze().numpy()
+            saliency = np.max(saliency, axis=0)
+            
             saliency = saliency - saliency.min()
             saliency = saliency / (saliency.max() + 1e-8)
             saliency = np.uint8(255 * saliency)
@@ -65,13 +86,16 @@ class XRayModel:
             heatmap = cv2.applyColorMap(saliency, cv2.COLORMAP_JET)
             
             # Blend with original
-            base_img = img_array[0] # assuming (1, H, W)
+            # img_array is (3, H, W), we need (H, W, 3) for cv2 operations
+            base_img = np.transpose(img_array, (1, 2, 0))
             base_img = base_img - base_img.min()
             base_img = base_img / (base_img.max() + 1e-8)
-            base_img = np.uint8(255 * base_img)
-            base_img_rgb = cv2.cvtColor(base_img, cv2.COLOR_GRAY2RGB)
+            base_img_rgb = np.uint8(255 * base_img)
             
-            blended = cv2.addWeighted(base_img_rgb, 0.5, heatmap, 0.5, 0)
+            # Convert RGB (from torchvision transforms) to BGR for OpenCV blending
+            base_img_bgr = cv2.cvtColor(base_img_rgb, cv2.COLOR_RGB2BGR)
+            
+            blended = cv2.addWeighted(base_img_bgr, 0.5, heatmap, 0.5, 0)
             
             # Encode base64
             _, buffer = cv2.imencode('.png', blended)
@@ -82,10 +106,11 @@ class XRayModel:
         else:
             with torch.no_grad():
                 outputs = self.model(img_tensor)
+                probs = torch.sigmoid(outputs)
                 
             results = {}
             for i, pathology in enumerate(self.pathologies):
-                results[pathology] = float(outputs[0][i].cpu())
+                results[pathology] = float(probs[0][i].cpu())
                 
             sorted_results = dict(sorted(results.items(), key=lambda item: item[1], reverse=True))
             return sorted_results, None

@@ -5,6 +5,7 @@ import torchvision
 import torchxrayvision as xrv
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
+from src.dacnet import DenseNet121, FocalLoss
 
 def main(args):
     # Set device
@@ -18,8 +19,24 @@ def main(args):
     ])
 
     # Initialize model first to get its pathologies
-    print("Initializing model densenet121-res224-all...")
-    model = xrv.models.DenseNet(weights="densenet121-res224-all")
+    print("Initializing DACNet DenseNet121...")
+    model = DenseNet121(classCount=14, isTrained=False)
+    
+    # Load base weights if they exist to fine-tune from them
+    weights_path = "data/dacnet.pth"
+    if os.path.exists(weights_path):
+        print(f"Loading base weights from {weights_path}")
+        checkpoint = torch.load(weights_path, map_location="cpu", weights_only=False)
+        state_dict = checkpoint.get('state_dict', checkpoint)
+        
+        # Strip module prefix just in case
+        clean_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        
+        model.densenet121.load_state_dict(clean_state_dict)
+
+    model.pathologies = [ 'Atelectasis', 'Cardiomegaly', 'Effusion', 'Infiltration', 'Mass', 'Nodule', 'Pneumonia',
+            'Pneumothorax', 'Consolidation', 'Edema', 'Emphysema', 'Fibrosis', 'Pleural_Thickening', 'Hernia']
+
     model.train()
     model.to(device)
 
@@ -58,8 +75,8 @@ def main(args):
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
     # Set up optimizer and loss function
-    # Note: Use BCEWithLogitsLoss because xrv models generally output logits
-    criterion = torch.nn.BCEWithLogitsLoss()
+    # Note: Use FocalLoss because DACNet requires it for class imbalance
+    criterion = FocalLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # Initialize GradScaler for mixed precision training (saves VRAM and speeds up training)

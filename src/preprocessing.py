@@ -4,6 +4,8 @@ import cv2
 import pydicom
 from PIL import Image
 
+import torchvision.transforms as transforms
+
 def load_and_preprocess_image(file_path, target_size=(224, 224)):
     """
     Loads an X-ray image (DICOM or standard formats) and preprocesses it.
@@ -19,28 +21,34 @@ def load_and_preprocess_image(file_path, target_size=(224, 224)):
         # Load DICOM
         dicom_data = pydicom.dcmread(file_path)
         # HIPAA compliance: Only extract the pixel data, ignore patient PII tags
-        img = dicom_data.pixel_array
+        img_np = dicom_data.pixel_array
         
         # Normalize to 0-255 if it's not uint8
-        if img.dtype != np.uint8:
-            img = ((img - img.min()) / (img.max() - img.min()) * 255.0).astype(np.uint8)
+        if img_np.dtype != np.uint8:
+            img_np = ((img_np - img_np.min()) / (img_np.max() - img_np.min()) * 255.0).astype(np.uint8)
+            
+        # Convert grayscale to RGB for DACNet
+        if len(img_np.shape) == 2:
+            img_np = cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
+            
+        img = Image.fromarray(img_np)
     else:
-        # Load standard image using OpenCV
-        img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-        if img is None:
-             raise ValueError(f"Could not load image: {file_path}")
+        # Load standard image using PIL and convert to RGB
+        img = Image.open(file_path).convert('RGB')
 
-    # Resize image for the neural network
-    img_resized = cv2.resize(img, target_size, interpolation=cv2.INTER_AREA)
+    # Use PyTorch transforms to exactly match DACNet expectations
+    transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
     
-    # Process for TorchXRayVision which expects inputs in the range [-1024, 1024]
-    # For a general 0-255 image, we scale it.
-    img_scaled = (img_resized.astype(np.float32) / 255.0) * 2048.0 - 1024.0
+    # Process image (outputs shape C, H, W)
+    img_tensor = transform(img)
     
-    # Add channel dimension (C, H, W) -> it expects 1 channel
-    img_tensor = np.expand_dims(img_scaled, axis=0) 
-    
-    return img_tensor
+    # Return as numpy array so the backend can unsqueeze it as expected
+    return img_tensor.numpy()
 
 if __name__ == "__main__":
     print("Preprocessing module ready. Create a dummy image to test.")

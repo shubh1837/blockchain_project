@@ -98,7 +98,7 @@ function App() {
              cid: data.cid,
              tx_id: data.tx_id,
              train_status: 'pending', // pending | trained
-             preview_img_url: image
+             preview_img_url: `http://localhost:${apiPort}/image/${data.job_id}`
          };
 
          // Prepend to history array

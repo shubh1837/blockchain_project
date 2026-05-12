@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import shutil
 import uuid
@@ -36,10 +37,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from src.dacnet import FocalLoss
+
 log_message("Mounting PyTorch Ecosystem for API...")
 model_wrapper = XRayModel()
 optimizer = optim.Adam(model_wrapper.model.parameters(), lr=0.001)
-criterion = nn.BCEWithLogitsLoss()
+criterion = FocalLoss()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model_wrapper.model.to(device)
 
@@ -138,6 +141,18 @@ async def active_learning_step(feedback: FeedbackData):
     except Exception as e:
         log_message(f"[{feedback.job_id}] Training Error: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.get("/image/{job_id}")
+async def get_image(job_id: str):
+    for file in os.listdir(HISTORY_DIR):
+        if file.startswith(job_id):
+            return FileResponse(os.path.join(HISTORY_DIR, file))
+            
+    for file in os.listdir(TRAINED_DIR):
+        if file.startswith(job_id):
+            return FileResponse(os.path.join(TRAINED_DIR, file))
+            
+    return {"status": "error", "message": "Image not found"}
 
 if __name__ == "__main__":
     log_message("API Persistent Server Active.")
