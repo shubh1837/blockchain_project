@@ -70,7 +70,7 @@ async def analyze_xray(file: UploadFile = File(...)):
         log_message(f"[{job_id}] Request Received: Secured to history vault.")
         preprocessed_img = load_and_preprocess_image(history_path)
         
-        predictions = model_wrapper.predict(preprocessed_img)
+        predictions, heatmap_b64 = model_wrapper.predict(preprocessed_img, explain=True)
         formatted_preds = [{"name": k, "score": v} for k, v in list(predictions.items())[:6]]
         
         ssh_hash = ssh_gen.generate_ssh(history_path)
@@ -82,6 +82,7 @@ async def analyze_xray(file: UploadFile = File(...)):
             "job_id": job_id,
             "filename": file.filename,
             "pathologies": formatted_preds,
+            "heatmap_base64": heatmap_b64,
             "ssh_hash": ssh_hash,
             "cid": cid,
             "tx_id": tx_id,

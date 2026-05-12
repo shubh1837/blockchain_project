@@ -93,6 +93,7 @@ function App() {
              filename: data.filename,
              timestamp: new Date().toLocaleString(),
              pathologies: data.pathologies,
+             heatmap_base64: data.heatmap_base64,
              ssh_hash: data.ssh_hash,
              cid: data.cid,
              tx_id: data.tx_id,
@@ -240,7 +241,18 @@ function App() {
             onDrop={handleDrop}
           >
             {image ? (
-              <img src={image} alt="X-Ray Preview" className="preview-image" />
+              <div style={{display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', position: 'relative', zIndex: 10}}>
+                <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, height: '100%', padding: '1rem'}}>
+                  <span style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem'}}>Original X-Ray</span>
+                  <img src={image} alt="X-Ray Preview" className="preview-image-flex" style={{maxHeight: '300px'}} />
+                </div>
+                {(status === 'complete' || status === 'learned') && currentViewData?.heatmap_base64 && (
+                   <div className="animate-slide-up" style={{display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, height: '100%', padding: '1rem'}}>
+                     <span style={{fontSize: '0.8rem', color: 'var(--accent-primary)', marginBottom: '0.5rem', fontWeight: 'bold'}}>✨ AI Saliency Map</span>
+                     <img src={`data:image/png;base64,${currentViewData.heatmap_base64}`} alt="AI Heatmap" className="preview-image-flex" style={{maxHeight: '300px', border: '2px solid var(--accent-primary)', boxShadow: '0 0 15px rgba(59, 130, 246, 0.3)'}} />
+                   </div>
+                )}
+              </div>
             ) : (
               <>
                 <div className="upload-icon">☢️</div>

@@ -1,6 +1,8 @@
 import torch
 import torchxrayvision as xrv
 import numpy as np
+import cv2
+import base64
 
 class XRayModel:
     def __init__(self, model_name="densenet121-res224-all"):
@@ -13,26 +15,66 @@ class XRayModel:
         self.pathologies = self.model.pathologies
         print("Model loaded successfully.")
 
-    def predict(self, img_array):
+    def predict(self, img_array, explain=True):
         """
-        Run inference on the preprocessed image array.
+        Run inference on the preprocessed image array and optionally generate an Explainable AI heatmap.
         """
-        # Convert numpy array to PyTorch tensor
-        # Input shape should be (1, H, W) for a single grayscale image
-        # Let's add batch dimension -> (1, 1, H, W)
         img_tensor = torch.from_numpy(img_array).unsqueeze(0)
         
-        with torch.no_grad():
+        if explain:
+            img_tensor.requires_grad_()
+            self.model.eval()
             outputs = self.model(img_tensor)
             
-        # Format the output predictions
-        results = {}
-        for i, pathology in enumerate(self.pathologies):
-            results[pathology] = float(outputs[0][i])
+            # Format the output predictions
+            results = {}
+            for i, pathology in enumerate(self.pathologies):
+                results[pathology] = float(outputs[0][i])
+                
+            sorted_results = dict(sorted(results.items(), key=lambda item: item[1], reverse=True))
             
-        # Sort results by probability descending
-        sorted_results = dict(sorted(results.items(), key=lambda item: item[1], reverse=True))
-        return sorted_results
+            # Explainability (Saliency Map for the top class)
+            top_class = list(sorted_results.keys())[0]
+            top_class_idx = self.pathologies.index(top_class)
+            
+            score = outputs[0][top_class_idx]
+            self.model.zero_grad()
+            score.backward()
+            
+            # Process gradients
+            saliency = img_tensor.grad.data.abs().squeeze().numpy()
+            saliency = saliency - saliency.min()
+            saliency = saliency / (saliency.max() + 1e-8)
+            saliency = np.uint8(255 * saliency)
+            
+            # Create a heatmap
+            heatmap = cv2.applyColorMap(saliency, cv2.COLORMAP_JET)
+            
+            # Blend with original
+            base_img = img_array[0] # assuming (1, H, W)
+            base_img = base_img - base_img.min()
+            base_img = base_img / (base_img.max() + 1e-8)
+            base_img = np.uint8(255 * base_img)
+            base_img_rgb = cv2.cvtColor(base_img, cv2.COLOR_GRAY2RGB)
+            
+            blended = cv2.addWeighted(base_img_rgb, 0.5, heatmap, 0.5, 0)
+            
+            # Encode base64
+            _, buffer = cv2.imencode('.png', blended)
+            heatmap_b64 = base64.b64encode(buffer).decode('utf-8')
+            
+            return sorted_results, heatmap_b64
+            
+        else:
+            with torch.no_grad():
+                outputs = self.model(img_tensor)
+                
+            results = {}
+            for i, pathology in enumerate(self.pathologies):
+                results[pathology] = float(outputs[0][i])
+                
+            sorted_results = dict(sorted(results.items(), key=lambda item: item[1], reverse=True))
+            return sorted_results, None
 
 if __name__ == "__main__":
     print("Testing model initialization...")
