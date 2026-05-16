@@ -22,7 +22,6 @@ This laptop acts as the central Federated Learning server that aggregates the AI
   ```
 - It will say "Starting Federated Learning Aggregation Server..." and wait for at least 2 hospitals to connect.
 
-*(Optional: If you are presenting IPFS live, you can also run your `docker-compose -f docker-compose-ipfs.yml up -d` on this machine).*
 
 ---
 
@@ -85,3 +84,19 @@ Here is the best sequence to show the panel during your BTech defense:
 3. **The Trigger:** Explain to the panel: *"By law, Hospital A cannot send its patient data to Hospital B or the Central Server. However, they both want to improve the global AI."*
 4. **Active Feedback Loop:** On Laptop 2, adjust the doctor's feedback sliders and click **"Confirm Final Truth & Update AI"**. Do the exact same on Laptop 3. 
 5. **The "Wow" Factor:** Instantly point to the terminals. The moment you hit confirm, Laptop 2 and 3 will detect the images and instantly join the Federated network. Show Laptop 1 aggregating the model weights across the network. Emphasize that **zero image data** ever left Laptop 2 or 3!
+
+---
+
+## 🔥 Bonus: Presenting Live IPFS Decentralized Storage
+
+By default, the project falls back to a **Mock IPFS CID Generator** so the presentation works smoothly even on laptops without Docker installed. However, if you want to show the panel *actual* IPFS distributed storage working live:
+
+**Prerequisite:** Ensure **Docker Desktop** is installed and running on Laptop 2 and Laptop 3.
+
+1. **Start the IPFS Daemon:** Before running the backend API on Laptop 2 and Laptop 3, open a terminal in the `blockchain_project` folder and run:
+   ```bash
+   docker-compose -f docker-compose-ipfs.yml up -d
+   ```
+2. **Automatic Detection:** You don't need to change any code! When you start `uvicorn src.api_server:app` (Step 1 in Laptop 2/3), the backend will automatically scan port 5001. 
+3. **The Proof:** Show the panel the backend terminal. Instead of printing `"Warning: IPFS Daemon not detected... Using MOCK storage"`, it will print `"IPFS Daemon Connected Successfully."`
+4. **The Live Hash:** When you upload the X-Ray, it will push the physical file into the local offline IPFS daemon and generate a legitimate, mathematically pure `Qm...` CID hash on the dashboard, proving the decentralized storage is completely functional!
