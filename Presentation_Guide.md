@@ -20,7 +20,7 @@ This laptop acts as the central Federated Learning server that aggregates the AI
   ```bash
   python src/fl_server.py
   ```
-- It will say "Starting Federated Learning Aggregation Server..." and wait for at least 2 hospitals to connect.
+- It will say "Starting Federated Learning Aggregation Server..." and wait for at least 1 hospital to connect. As more hospitals join, it will seamlessly integrate them into the training network!
 
 
 ---

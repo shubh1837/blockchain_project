@@ -44,9 +44,9 @@ def start_fl_server():
     strategy = fl.server.strategy.FedAvg(
         fraction_fit=1.0,  # Sample 100% of available clients for training
         fraction_evaluate=0.5,  # Sample 50% of available clients for evaluation
-        min_fit_clients=2, # Require at least 2 hospitals to train
-        min_evaluate_clients=2,
-        min_available_clients=2,
+        min_fit_clients=1, # Require at least 1 hospital to train
+        min_evaluate_clients=1,
+        min_available_clients=1,
         evaluate_fn=get_evaluate_fn()
     )
 
