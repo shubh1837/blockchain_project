@@ -9,8 +9,28 @@ import os
 import json
 import time
 import numpy as np
+import socket
 from src.model import XRayModel
 from src.preprocessing import load_and_preprocess_image
+
+def discover_server(port=55555):
+    """Listens for the UDP beacon from the FL server."""
+    print("Listening for Auto-Discovery Beacon from Central Server...")
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Enable SO_REUSEADDR and SO_BROADCAST to ensure we can bind to it
+    client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    client.bind(('', port))
+    
+    while True:
+        data, addr = client.recvfrom(1024)
+        msg = data.decode('utf-8')
+        if msg.startswith("DACNET_FL_SERVER:"):
+            fl_port = msg.split(":")[1]
+            server_ip = addr[0]
+            print(f"Auto-Discovery Success! Found Central Server at {server_ip}:{fl_port}")
+            client.close()
+            return f"{server_ip}:{fl_port}"
+
 
 class CustomHistoryDataset(torch.utils.data.Dataset):
     def __init__(self, history_dir):
@@ -143,7 +163,7 @@ class XRayHospitalClient(fl.client.NumPyClient):
 if __name__ == "__main__":
     import sys
     
-    server_ip = "127.0.0.1:8080"
+    server_ip = "auto"
     is_standalone = False
     node_port = "8000"
     
@@ -165,6 +185,9 @@ if __name__ == "__main__":
         loss, count, d = client.evaluate(parameters=client.get_parameters(config={}), config={})
         print(f"Validation Loss: {loss:.4f} across {count} samples.")
     else:
+        if server_ip == "auto":
+            server_ip = discover_server()
+            
         print(f"\n--- Connecting to Federated Server at {server_ip} ---")
         fl.client.start_numpy_client(server_address=server_ip, client=client)
 

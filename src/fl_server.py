@@ -1,5 +1,28 @@
 import flwr as fl
 from typing import List, Tuple
+import socket
+import threading
+import time
+
+def udp_broadcaster(port=55555, fl_port=8080):
+    """Continuously broadcasts the presence of the FL Server on the local network."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    
+    message = f"DACNET_FL_SERVER:{fl_port}".encode('utf-8')
+    while True:
+        try:
+            server.sendto(message, ('<broadcast>', port))
+        except Exception:
+            try:
+                server.sendto(message, ('255.255.255.255', port))
+            except:
+                pass
+        time.sleep(2)
+
+def start_broadcaster():
+    t = threading.Thread(target=udp_broadcaster, daemon=True)
+    t.start()
 
 def get_evaluate_fn():
     """
@@ -14,6 +37,8 @@ def get_evaluate_fn():
 
 def start_fl_server():
     print("Starting Federated Learning Aggregation Server...")
+    print("Initiating Auto-Discovery UDP Beacon...")
+    start_broadcaster()
     
     # Define strategy (Federated Averaging)
     strategy = fl.server.strategy.FedAvg(
@@ -35,3 +60,4 @@ def start_fl_server():
 if __name__ == "__main__":
     # Note: Requires starting clients in separate processes
     print("Federated Server defined. Waiting for nodes...")
+    start_fl_server()

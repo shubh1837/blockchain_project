@@ -14,11 +14,7 @@ To present your final year project impressively using 3 laptops, you will design
 
 This laptop acts as the central Federated Learning server that aggregates the AI models from the hospitals without accessing their private data. 
 
-**1. Find the IP Address:**
-- Open Command Prompt or PowerShell and type: `ipconfig`
-- Note down the `IPv4 Address` (e.g., `192.168.1.105`). You will need this for the other laptops.
-
-**2. Start the Federated Learning Server:**
+**1. Start the Federated Learning Server:**
 - Open a terminal in the `blockchain_project` folder.
 - Run the server:
   ```bash
@@ -47,9 +43,9 @@ This laptop represents the first localized hospital. It processes X-Rays securel
 
 **3. Connect to the Central Node for AI Training:**
 - Open a **third** terminal in the `blockchain_project` folder.
-- Run the Federated Learning client, replacing `<LAPTOP_1_IP>` with the IP you found earlier:
+- Run the Federated Learning client (it will automatically discover the central server!):
   ```bash
-  python src/fl_client.py --server <LAPTOP_1_IP>:8080
+  python src/fl_client.py
   ```
 > *Note: It will say "Dataset empty. Waiting 5s..." because you haven't uploaded an image yet. Leave it running!*
 
@@ -72,9 +68,9 @@ This laptop represents the second localized hospital, demonstrating how multiple
 
 **3. Connect to the Central Node for AI Training:**
 - Open a **third** terminal in the `blockchain_project` folder.
-- Run the Federated Learning client, again using Laptop 1's IP address:
+- Run the Federated Learning client:
   ```bash
-  python src/fl_client.py --server <LAPTOP_1_IP>:8080
+  python src/fl_client.py
   ```
 > *Note: It will also poll and wait for images.*
 
