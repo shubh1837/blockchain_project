@@ -32,12 +32,12 @@ def http_file_server(port=8081):
     """Hosts the data directory so clients can download global_model.npz."""
     os.chdir(os.path.join(os.path.dirname(__file__), '..', 'data'))
     handler = http.server.SimpleHTTPRequestHandler
-    # Suppress verbose logging from http server
-    class QuietHandler(handler):
+    class LoggingHandler(handler):
         def log_message(self, format, *args):
-            pass
+            if "global_model.npz" in args[0]:
+                print(f"--> [TRANSACTION LOG] A Hospital Node ({self.client_address[0]}) just downloaded the latest Global AI Model!")
     
-    with socketserver.TCPServer(("", port), QuietHandler) as httpd:
+    with socketserver.TCPServer(("", port), LoggingHandler) as httpd:
         print(f"HTTP Global Model File Server running on port {port}")
         httpd.serve_forever()
 
