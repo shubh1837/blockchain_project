@@ -6,57 +6,82 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 import torchxrayvision as xrv
 import os
+import json
+import time
 import numpy as np
+from src.model import XRayModel
+from src.preprocessing import load_and_preprocess_image
 
+class CustomHistoryDataset(torch.utils.data.Dataset):
+    def __init__(self, history_dir):
+        self.history_dir = history_dir
+        self.samples = []
+        
+        if os.path.exists(history_dir):
+            for file in os.listdir(history_dir):
+                if file.endswith(('.png', '.jpg', '.jpeg')):
+                    img_path = os.path.join(history_dir, file)
+                    json_path = os.path.splitext(img_path)[0] + ".json"
+                    if os.path.exists(json_path):
+                        self.samples.append((img_path, json_path))
+                        
+    def __len__(self):
+        return len(self.samples)
+        
+    def __getitem__(self, idx):
+        img_path, json_path = self.samples[idx]
+        
+        # Use exact preprocessing as API to match DACNet (Outputs C,H,W numpy)
+        img_array = load_and_preprocess_image(img_path)
+        
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+            labels = np.array(data['labels'], dtype=np.float32)
+            
+        return {"img": torch.from_numpy(img_array), "lab": torch.from_numpy(labels)}
 class XRayHospitalClient(fl.client.NumPyClient):
-    def __init__(self, data_dir="data/NIH", limit_memory=True):
+    def __init__(self, node_port="8000"):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Hospital Node AI initialised on {self.device}.")
         
-        # 1. Initialize TorchXRayVision Model Architecture
-        # Using the NIH-specific backbone ensures the output layer precisely matches 
-        # the 14 pathologies of the NIH dataset to prevent dimension errors.
-        self.model = xrv.models.get_model("densenet121-res224-nih")
+        # 1. Initialize DACNet directly to match backend
+        model_wrapper = XRayModel()
+        self.model = model_wrapper.model
         self.model.to(self.device)
+        self.dataset_pathologies = model_wrapper.pathologies
         
         # 2. Setup PyTorch Loss and Optimizer
-        # BCEWithLogitsLoss is required for multi-label binary tasks
         self.criterion = nn.BCEWithLogitsLoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
 
-        # 3. Load Actual Data
-        csv_path = os.path.join(data_dir, "Data_Entry_2017.csv")
-        img_dir = os.path.join(data_dir, "images")
+        # 3. Wait for Local Hospital Data (Prevention Method)
+        history_dir = f"data/node_{node_port}_history/trained"
+        print(f"Scanning for doctor-confirmed images in {history_dir}...")
         
-        if not os.path.exists(csv_path):
-             raise FileNotFoundError("NIH Dataset not found. Please run scripts/setup_nih_dataset.py first.")
-             
-        transform = xrv.datasets.XRayCenterCrop()
-        self.dataset = xrv.datasets.NIH_Dataset(
-            imgpath=img_dir,
-            csvpath=csv_path,
-            transform=transform
-        )
+        os.makedirs(history_dir, exist_ok=True)
         
-        # Store dataset pathology map before any Subsetting happens
-        self.dataset_pathologies = self.dataset.pathologies
-
-        # Device Limitation: Subset the dataset drastically to prevent OOM
-        # 42GB dataset / 112k images will crash most home PCs if loaded in memory
-        if limit_memory:
-             # Train only on the first 40 examples
-             print("Applying Device Limitation: Downsampling dataset representation to 40 samples.")
-             indices = list(range(min(40, len(self.dataset))))
-             self.dataset = Subset(self.dataset, indices)
-        
+        while True:
+            self.dataset = CustomHistoryDataset(history_dir)
+            if len(self.dataset) > 0:
+                print(f"Found {len(self.dataset)} confirmed images! Proceeding to join Federated network.")
+                break
+            print("Dataset empty. Please upload and confirm at least 1 image on the dashboard. Waiting 5s...")
+            time.sleep(5)
+            
         # Split into Train/Test locally
         train_size = int(0.8 * len(self.dataset))
         test_size = len(self.dataset) - train_size
-        train_ds, test_ds = torch.utils.data.random_split(self.dataset, [train_size, test_size])
+        
+        # If very few images, put everything in train
+        if test_size == 0:
+            train_ds = self.dataset
+            test_ds = self.dataset
+        else:
+            train_ds, test_ds = torch.utils.data.random_split(self.dataset, [train_size, test_size])
         
         # DataLoader handles batching
-        self.train_loader = DataLoader(train_ds, batch_size=8, shuffle=True)
-        self.val_loader = DataLoader(test_ds, batch_size=8)
+        self.train_loader = DataLoader(train_ds, batch_size=min(8, len(train_ds)), shuffle=True)
+        self.val_loader = DataLoader(test_ds, batch_size=min(8, len(test_ds)))
         
     def get_parameters(self, config):
         return [val.cpu().numpy() for _, val in self.model.state_dict().items()]
@@ -82,9 +107,8 @@ class XRayHospitalClient(fl.client.NumPyClient):
              self.optimizer.zero_grad()
              outputs = self.model(images)
              
-             # Align the 18 default model outputs to the 14 dataset labels
-             path_indices = [self.model.pathologies.index(path) for path in self.dataset_pathologies]
-             outputs_aligned = outputs[:, path_indices]
+             # The dataset already provides aligned labels because we created them directly from XRayModel.pathologies!
+             outputs_aligned = outputs
              
              loss = self.criterion(outputs_aligned, labels)
              loss.backward()
@@ -107,8 +131,8 @@ class XRayHospitalClient(fl.client.NumPyClient):
                  labels = batch["lab"].to(self.device).float()
                  outputs = self.model(images)
                  
-                 path_indices = [self.model.pathologies.index(path) for path in self.dataset_pathologies]
-                 outputs_aligned = outputs[:, path_indices]
+                 # Labels are already perfectly aligned to XRayModel
+                 outputs_aligned = outputs
                  
                  loss = self.criterion(outputs_aligned, labels)
                  val_loss += loss.item()
@@ -117,15 +141,30 @@ class XRayHospitalClient(fl.client.NumPyClient):
         return float(final_loss), len(self.val_loader.dataset), {"loss": final_loss}
 
 if __name__ == "__main__":
-    print("Starting Deep Learning Client Node...")
-    client = XRayHospitalClient(limit_memory=True)
+    import sys
     
-    # We execute a dry run of standard PyTorch locally for proof of functionality.
-    # In a real FL system, we pass control to the Flower client:
-    # fl.client.start_numpy_client(server_address="127.0.0.1:8080", client=client)
+    server_ip = "127.0.0.1:8080"
+    is_standalone = False
+    node_port = "8000"
     
-    print("\n--- Starting Standalone Test Training Loop ---")
-    client.fit(parameters=client.get_parameters(config={}), config={})
-    print("\n--- Executing Validation Loop ---")
-    loss, count, d = client.evaluate(parameters=client.get_parameters(config={}), config={})
-    print(f"Validation Loss: {loss:.4f} across {count} samples.")
+    for i, arg in enumerate(sys.argv):
+        if arg == "--server" and i + 1 < len(sys.argv):
+            server_ip = sys.argv[i+1]
+        if arg == "--port" and i + 1 < len(sys.argv):
+            node_port = sys.argv[i+1]
+        if arg == "--standalone":
+            is_standalone = True
+
+    print(f"Starting Deep Learning Client Node (Port {node_port})...")
+    client = XRayHospitalClient(node_port=node_port)
+    
+    if is_standalone:
+        print("\n--- Starting Standalone Test Training Loop ---")
+        client.fit(parameters=client.get_parameters(config={}), config={})
+        print("\n--- Executing Validation Loop ---")
+        loss, count, d = client.evaluate(parameters=client.get_parameters(config={}), config={})
+        print(f"Validation Loss: {loss:.4f} across {count} samples.")
+    else:
+        print(f"\n--- Connecting to Federated Server at {server_ip} ---")
+        fl.client.start_numpy_client(server_address=server_ip, client=client)
+

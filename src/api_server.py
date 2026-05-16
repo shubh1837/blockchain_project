@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import shutil
 import uuid
 import pydicom
-
+import json
 from src.model import XRayModel
 from src.preprocessing import load_and_preprocess_image
 from src.ssh_security import SSHGenerator
@@ -131,7 +131,13 @@ async def active_learning_step(feedback: FeedbackData):
         log_message(f"[{feedback.job_id}] Weights adjusted recursively. Local Loss: {loss.item():.4f}")
         
         # Archiving file from pending to trained zone
-        shutil.move(found_path, os.path.join(TRAINED_DIR, os.path.basename(found_path)))
+        final_img_path = os.path.join(TRAINED_DIR, os.path.basename(found_path))
+        shutil.move(found_path, final_img_path)
+        
+        # Save labels for FL Client to use
+        json_path = os.path.splitext(final_img_path)[0] + ".json"
+        with open(json_path, "w") as f:
+            json.dump({"labels": ground_truth}, f)
         
         return {
             "status": "success", 
