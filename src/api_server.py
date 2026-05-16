@@ -18,6 +18,9 @@ from src.ssh_security import SSHGenerator
 from src.storage import IPFSStorage
 from src.blockchain_client import BlockchainClient
 import sys
+import socket
+import requests
+from collections import OrderedDict
 
 node_port = "8000"
 for i, arg in enumerate(sys.argv):
@@ -59,8 +62,58 @@ class FeedbackData(BaseModel):
     job_id: str
     confirmed_pathologies: dict
 
+def discover_server(port=55555, timeout=1.0):
+    """Listens for the UDP beacon to find the HTTP File Server URL."""
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    client.bind(('', port))
+    client.settimeout(timeout)
+    try:
+        data, addr = client.recvfrom(1024)
+        msg = data.decode('utf-8')
+        if msg.startswith("DACNET_FL_SERVER:"):
+            parts = msg.split(":")
+            if len(parts) == 3:
+                http_port = parts[2]
+                server_ip = addr[0]
+                return f"http://{server_ip}:{http_port}/global_model.npz"
+    except socket.timeout:
+        pass
+    except Exception:
+        pass
+    finally:
+        client.close()
+    return None
+
+def sync_global_model():
+    """Downloads the latest global model from the FL Server and applies it."""
+    model_url = discover_server()
+    if model_url:
+        try:
+            log_message(f"Discovered FL Server. Downloading global model from {model_url}...")
+            response = requests.get(model_url, timeout=3)
+            if response.status_code == 200:
+                with open("temp_global_model.npz", "wb") as f:
+                    f.write(response.content)
+                
+                # Load the npz and apply to model
+                ndarrays = np.load("temp_global_model.npz")
+                parameters = [ndarrays[key] for key in ndarrays.files]
+                
+                params_dict = zip(model_wrapper.model.state_dict().keys(), parameters)
+                state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+                model_wrapper.model.load_state_dict(state_dict, strict=True)
+                log_message("Successfully synced and applied latest global Federated weights!")
+            else:
+                log_message("Global model file not found on server yet (maybe round 1 hasn't finished).")
+        except Exception as e:
+            log_message(f"Failed to sync global model: {e}")
+
 @app.post("/analyze")
 async def analyze_xray(file: UploadFile = File(...)):
+    # 1. Instantly Sync Global AI
+    sync_global_model()
+    
     job_id = str(uuid.uuid4())
     ext = os.path.splitext(file.filename)[1]
     if not ext: ext = ".png"
